@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filament Width Sensor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:monospace;background:#111;color:#ddd;padding:12px;max-width:480px;margin:auto}
+h2{color:#4af;margin:12px 0 6px;font-size:14px;text-transform:uppercase;letter-spacing:1px}
+.card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:14px;margin-bottom:12px}
+
+/* ── Live reading ── */
+.reading{font-size:52px;font-weight:bold;text-align:center;letter-spacing:2px;transition:color .3s}
+.reading.ok{color:#4f4}
+.reading.alarm{color:#f44;animation:blink .5s step-start infinite}
+@keyframes blink{50%{opacity:0}}
+.status-label{text-align:center;font-size:13px;margin-top:4px;color:#aaa}
+.status-label.alarm{color:#f55}
+
+/* ── Progress bar ── */
+.bar-wrap{position:relative;background:#2a2a2a;border-radius:4px;height:18px;margin:10px 0 2px}
+.bar-fill{height:100%;border-radius:4px;transition:width .3s,background .3s}
+.bar-fill.ok{background:#4af}
+.bar-fill.alarm{background:#f44}
+.bar-marker{position:absolute;top:0;width:2px;height:100%;background:#fa4;opacity:.85}
+.bar-labels{display:flex;justify-content:space-between;font-size:10px;color:#555}
+
+/* ── Forms ── */
+label{display:block;font-size:11px;color:#888;margin-top:10px;margin-bottom:3px}
+input[type=number]{width:100%;padding:7px 8px;background:#222;border:1px solid #3a3a3a;
+  color:#eee;border-radius:4px;font-family:monospace;font-size:13px}
+input[type=number]:focus{outline:none;border-color:#4af}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+button{margin-top:10px;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;
+  font-family:monospace;font-size:13px;font-weight:bold}
+.btn-primary{background:#4af;color:#000}
+.btn-danger {background:#c33;color:#fff}
+.msg{font-size:11px;min-height:16px;margin-top:6px}
+.msg.ok{color:#4f4}
+.msg.err{color:#f44}
+
+/* ── Calibration ── */
+.adc-display{font-size:28px;text-align:center;color:#fa4;margin:6px 0}
+.calib-count{font-size:11px;color:#666;text-align:center}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+th{color:#666;padding:4px 2px;text-align:left;border-bottom:1px solid #2a2a2a}
+td{padding:5px 2px;border-bottom:1px solid #1e1e1e}
+.del-btn{background:none;border:1px solid #633;color:#c55;padding:2px 7px;
+  border-radius:3px;cursor:pointer;font-size:11px;margin-top:0}
+.del-btn:hover{background:#c33;color:#fff;border-color:#c33}
+.tag-warn{color:#fa4;font-size:11px}
+</style>
+</head>
+<body>
+
+<!-- ── Live status ─────────────────────────────────────────────── -->
+<div class="card">
+  <div class="reading ok" id="reading">-.-- mm</div>
+  <div class="bar-wrap">
+    <div class="bar-fill ok" id="bar" style="width:0%"></div>
+    <div class="bar-marker" id="bar-lo" style="left:32.5%"></div>
+    <div class="bar-marker" id="bar-hi" style="left:42.5%"></div>
+  </div>
+  <div class="bar-labels"><span>1.00</span><span>3.00</span></div>
+  <div class="status-label" id="status-label">соединение...</div>
+</div>
+
+<!-- ── Thresholds ─────────────────────────────────────────────── -->
+<div class="card">
+  <h2>Пороговые значения</h2>
+  <div class="row">
+    <div>
+      <label>Нижний порог (мм)</label>
+      <input type="number" id="thr-lo" step="0.01" min="1.00" max="3.00" value="1.65">
+    </div>
+    <div>
+      <label>Верхний порог (мм)</label>
+      <input type="number" id="thr-hi" step="0.01" min="1.00" max="3.00" value="1.85">
+    </div>
+  </div>
+  <button class="btn-primary" onclick="saveConfig()">Сохранить</button>
+  <div class="msg" id="cfg-msg"></div>
+</div>
+
+<!-- ── Calibration ────────────────────────────────────────────── -->
+<div class="card">
+  <h2>Калибровка</h2>
+  <p style="font-size:11px;color:#666;margin-bottom:4px">
+    Вставьте пруток известной толщины, введите значение, нажмите «Добавить».
+    Нужно минимум 3 точки.
+  </p>
+
+  <label>Текущее значение АЦП</label>
+  <div class="adc-display" id="adc-val">----</div>
+  <div class="calib-count" id="calib-count"></div>
+
+  <label>Известная толщина (мм)</label>
+  <input type="number" id="calib-mm" step="0.01" min="1.00" max="3.00" placeholder="напр. 1.75">
+
+  <div class="row">
+    <button class="btn-primary" onclick="addCalib()">Добавить точку</button>
+    <button class="btn-danger"  onclick="clearCalib()">Очистить всё</button>
+  </div>
+  <div class="msg" id="calib-msg"></div>
+
+  <table>
+    <thead><tr><th>#</th><th>АЦП</th><th>мм</th><th></th></tr></thead>
+    <tbody id="calib-tbody"></tbody>
+  </table>
+</div>
+
+<script>
+const MM_MIN = 1.0, MM_MAX = 3.0;
+
+async function api(url, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== null) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+function mmToPct(mm) {
+  return Math.max(0, Math.min(100, (mm - MM_MIN) / (MM_MAX - MM_MIN) * 100));
+}
+
+// ── Live status poll ──────────────────────────────────────────────────────────
+async function updateStatus() {
+  try {
+    const d = await api('/api/status');
+    const mm = parseFloat(d.mm);
+    const alarm = !!d.alarm;
+
+    document.getElementById('reading').textContent = mm.toFixed(2) + ' mm';
+    document.getElementById('reading').className = 'reading ' + (alarm ? 'alarm' : 'ok');
+    document.getElementById('status-label').textContent = alarm ? '⚠  АВАРИЯ' : '✓  НОРМА';
+    document.getElementById('status-label').className = 'status-label' + (alarm ? ' alarm' : '');
+
+    const bar = document.getElementById('bar');
+    bar.style.width = mmToPct(mm) + '%';
+    bar.className = 'bar-fill ' + (alarm ? 'alarm' : 'ok');
+
+    document.getElementById('adc-val').textContent = d.adc;
+  } catch (e) {
+    document.getElementById('status-label').textContent = 'нет связи';
+  }
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const d = await api('/api/config');
+    document.getElementById('thr-lo').value = parseFloat(d.threshold_low).toFixed(2);
+    document.getElementById('thr-hi').value = parseFloat(d.threshold_high).toFixed(2);
+    updateBarMarkers(parseFloat(d.threshold_low), parseFloat(d.threshold_high));
+  } catch (e) {}
+}
+
+function updateBarMarkers(lo, hi) {
+  document.getElementById('bar-lo').style.left = mmToPct(lo) + '%';
+  document.getElementById('bar-hi').style.left = mmToPct(hi) + '%';
+}
+
+async function saveConfig() {
+  const lo = parseFloat(document.getElementById('thr-lo').value);
+  const hi = parseFloat(document.getElementById('thr-hi').value);
+  if (isNaN(lo) || isNaN(hi) || lo >= hi) {
+    showMsg('cfg-msg', 'Нижний порог должен быть меньше верхнего', 'err'); return;
+  }
+  if (lo < MM_MIN || hi > MM_MAX) {
+    showMsg('cfg-msg', `Диапазон: ${MM_MIN}–${MM_MAX} мм`, 'err'); return;
+  }
+  try {
+    await api('/api/config', 'POST', { threshold_low: lo, threshold_high: hi });
+    showMsg('cfg-msg', 'Сохранено', 'ok');
+    updateBarMarkers(lo, hi);
+  } catch (e) {
+    showMsg('cfg-msg', 'Ошибка сохранения', 'err');
+  }
+}
+
+// ── Calibration ──────────────────────────────────────────────────────────────
+async function loadCalib() {
+  try {
+    const d = await api('/api/calibration');
+    const pts = d.points || [];
+    const tbody = document.getElementById('calib-tbody');
+    tbody.innerHTML = '';
+    pts.forEach((p, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td>${i + 1}</td>` +
+        `<td>${p.adc}</td>` +
+        `<td>${parseFloat(p.mm).toFixed(2)}</td>` +
+        `<td><button class="del-btn" onclick="delCalib(${i})">✕</button></td>`;
+      tbody.appendChild(tr);
+    });
+    const min_needed = 3;
+    const count = pts.length;
+    document.getElementById('calib-count').textContent =
+      count === 0 ? 'Нет точек — добавьте минимум 3' :
+      count < min_needed ? `${count} / мин. ${min_needed} — добавьте ещё` :
+      `${count} точек ✓`;
+  } catch (e) {}
+}
+
+async function addCalib() {
+  const mm = parseFloat(document.getElementById('calib-mm').value);
+  if (isNaN(mm) || mm < MM_MIN || mm > MM_MAX) {
+    showMsg('calib-msg', `Введите значение от ${MM_MIN} до ${MM_MAX}`, 'err'); return;
+  }
+  try {
+    const r = await api('/api/calibration/add', 'POST', { mm });
+    if (r.ok) {
+      showMsg('calib-msg', 'Точка добавлена', 'ok');
+      document.getElementById('calib-mm').value = '';
+      loadCalib();
+    } else {
+      showMsg('calib-msg', r.error || 'Ошибка', 'err');
+    }
+  } catch (e) {
+    showMsg('calib-msg', 'Ошибка', 'err');
+  }
+}
+
+async function delCalib(i) {
+  try {
+    await api('/api/calibration/del', 'POST', { index: i });
+    loadCalib();
+  } catch (e) {}
+}
+
+async function clearCalib() {
+  if (!confirm('Удалить все точки калибровки?')) return;
+  try {
+    await api('/api/calibration/clear', 'POST', {});
+    showMsg('calib-msg', 'Таблица очищена', 'ok');
+    loadCalib();
+  } catch (e) {}
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function showMsg(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = 'msg ' + cls;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.textContent = ''; el.className = 'msg'; }, 3500);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadConfig();
+loadCalib();
+updateStatus();
+setInterval(updateStatus, 1000);
+</script>
+</body>
+</html>
