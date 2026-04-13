@@ -1,0 +1,17 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# VSCode
+.vscode/
+!.vscode/extensions.json
+
+# Build artifacts
+*.bin
+*.elf
+*.map
+
+# Credentials — never commit real WiFi passwords
+# Rename config.h.example → config.h locally
+src/secrets.h
