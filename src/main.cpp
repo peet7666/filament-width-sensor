@@ -162,8 +162,14 @@ void loop() {
     if (now - lastMeasure >= MEASURE_INTERVAL_MS) {
         lastMeasure = now;
 
-        g.rawAdc  = sensorReadRaw();
-        g.widthMm = calib.isValid() ? calib.interpolate(g.rawAdc) : 0.0f;
+        SensorReading s = sensorReadBoth();
+        g.rawAdc1   = s.adc1;
+        g.rawAdc2   = s.adc2;
+        g.ratio     = s.ratio;
+        g.ratioZero = calib.getRatioZero();
+        g.ratioAdj  = g.ratio - g.ratioZero;
+
+        g.widthMm = calib.isValid() ? calib.interpolate(g.ratioAdj) : 0.0f;
         g.alarm   = !calib.isValid()
                  || g.widthMm < g.threshLow
                  || g.widthMm > g.threshHigh;
@@ -181,10 +187,12 @@ void loop() {
     if (now - lastSerial >= SERIAL_INTERVAL_MS) {
         lastSerial = now;
         if (calib.isValid()) {
-            Serial.printf("[sensor] %.2f mm  ADC=%d  %s\n",
-                          g.widthMm, g.rawAdc, g.alarm ? "ALARM" : "OK");
+            Serial.printf("[sensor] %.2f mm  ratio=%.4f  ADC1=%d ADC2=%d  %s\n",
+                          g.widthMm, g.ratioAdj, g.rawAdc1, g.rawAdc2,
+                          g.alarm ? "ALARM" : "OK");
         } else {
-            Serial.printf("[sensor] ADC=%d  (no calibration)\n", g.rawAdc);
+            Serial.printf("[sensor] ratio=%.4f  ADC1=%d ADC2=%d  (no calibration)\n",
+                          g.ratioAdj, g.rawAdc1, g.rawAdc2);
         }
     }
 }

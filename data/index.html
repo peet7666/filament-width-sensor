@@ -129,21 +129,45 @@ td{padding:5px 2px;border-bottom:1px solid #1e1e1e}
     Нужно минимум 3 точки.
   </p>
 
-  <label>Текущее значение АЦП</label>
-  <div class="adc-display" id="adc-val">----</div>
+  <div class="row" style="margin-bottom:4px">
+    <div>
+      <label>АЦП датчик 1</label>
+      <div class="adc-display" id="adc1-val">----</div>
+    </div>
+    <div>
+      <label>АЦП датчик 2</label>
+      <div class="adc-display" id="adc2-val">----</div>
+    </div>
+  </div>
+
+  <label>Рациометрическое значение (ratio_adj)</label>
+  <div class="adc-display" id="ratio-val">-.----</div>
   <div class="calib-count" id="calib-count"></div>
 
+  <div style="background:#1e1a00;border:1px solid #3a3000;border-radius:6px;padding:10px;margin:10px 0">
+    <div style="font-size:11px;color:#fa4;margin-bottom:6px">
+      Шаг 1 — Нулевая калибровка (без прутка)
+    </div>
+    <p style="font-size:11px;color:#666;margin-bottom:6px">
+      Уберите пруток. Нажмите кнопку — текущее соотношение будет принято за ноль.<br>
+      <b style="color:#f84">Внимание: существующие точки калибровки будут удалены.</b>
+    </p>
+    <button class="btn-primary" onclick="zeroCalib()">Нулевая калибровка</button>
+    <span style="font-size:11px;color:#666;margin-left:10px">Текущий ноль: <span id="ratio-zero">?.????</span></span>
+  </div>
+
+  <div style="font-size:11px;color:#888;margin-bottom:4px">Шаг 2 — Добавление точек (с прутком известной толщины)</div>
   <label>Известная толщина (мм)</label>
   <input type="number" id="calib-mm" step="0.01" min="1.00" max="3.00" placeholder="напр. 1.75">
 
   <div class="row">
     <button class="btn-primary" onclick="addCalib()">Добавить точку</button>
-    <button class="btn-danger"  onclick="clearCalib()">Очистить всё</button>
+    <button class="btn-danger"  onclick="clearCalib()">Очистить точки</button>
   </div>
   <div class="msg" id="calib-msg"></div>
 
   <table>
-    <thead><tr><th>#</th><th>АЦП</th><th>мм</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>ratio_adj</th><th>мм</th><th></th></tr></thead>
     <tbody id="calib-tbody"></tbody>
   </table>
 </div>
@@ -179,7 +203,9 @@ async function updateStatus() {
     bar.style.width = mmToPct(mm) + '%';
     bar.className = 'bar-fill ' + (alarm ? 'alarm' : 'ok');
 
-    document.getElementById('adc-val').textContent = d.adc;
+    document.getElementById('adc1-val').textContent  = d.adc1;
+    document.getElementById('adc2-val').textContent  = d.adc2;
+    document.getElementById('ratio-val').textContent = parseFloat(d.ratio_adj).toFixed(4);
   } catch (e) {
     document.getElementById('status-label').textContent = 'нет связи';
   }
@@ -219,9 +245,22 @@ async function saveConfig() {
 }
 
 // ── Calibration ──────────────────────────────────────────────────────────────
+async function zeroCalib() {
+  if (!confirm('Нулевая калибровка удалит все существующие точки. Продолжить?')) return;
+  try {
+    await api('/api/calibration/zero', 'POST', {});
+    showMsg('calib-msg', 'Нулевая калибровка выполнена', 'ok');
+    loadCalib();
+  } catch (e) {
+    showMsg('calib-msg', 'Ошибка', 'err');
+  }
+}
+
 async function loadCalib() {
   try {
     const d = await api('/api/calibration');
+    document.getElementById('ratio-zero').textContent =
+      parseFloat(d.ratio_zero || 0).toFixed(4);
     const pts = d.points || [];
     const tbody = document.getElementById('calib-tbody');
     tbody.innerHTML = '';
@@ -229,7 +268,7 @@ async function loadCalib() {
       const tr = document.createElement('tr');
       tr.innerHTML =
         `<td>${i + 1}</td>` +
-        `<td>${p.adc}</td>` +
+        `<td>${parseFloat(p.ratio).toFixed(4)}</td>` +
         `<td>${parseFloat(p.mm).toFixed(2)}</td>` +
         `<td><button class="del-btn" onclick="delCalib(${i})">✕</button></td>`;
       tbody.appendChild(tr);

@@ -54,7 +54,7 @@ void displayUpdate(const AppState& s, bool calibValid) {
         u8g2.drawStr(14, 22, "CALIBRATE!");
         u8g2.setFont(u8g2_font_6x10_tf);
         char buf[24];
-        snprintf(buf, sizeof(buf), "ADC: %d", s.rawAdc);
+        snprintf(buf, sizeof(buf), "r=%.3f", s.ratioAdj);
         u8g2.drawStr(32, 42, buf);
         u8g2.drawStr(8, 58, "Use web interface");
     } else {

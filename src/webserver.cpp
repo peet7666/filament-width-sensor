@@ -49,12 +49,15 @@ static void onPost(const char* path, PostHandler handler) {
 
 // ─── Route handlers ──────────────────────────────────────────────────────────
 
-// GET /api/status → { mm, adc, alarm, pwm_duty }
+// GET /api/status → { mm, adc1, adc2, ratio, ratio_adj, alarm }
 static void handleGetStatus(AsyncWebServerRequest* req) {
     JsonDocument doc;
-    doc["mm"]    = serialized(String(_state->widthMm, 2));
-    doc["adc"]   = _state->rawAdc;
-    doc["alarm"] = _state->alarm;
+    doc["mm"]        = serialized(String(_state->widthMm,   2));
+    doc["adc1"]      = _state->rawAdc1;
+    doc["adc2"]      = _state->rawAdc2;
+    doc["ratio"]     = serialized(String(_state->ratio,     4));
+    doc["ratio_adj"] = serialized(String(_state->ratioAdj,  4));
+    doc["alarm"]     = _state->alarm;
     sendJson(req, doc);
 }
 
@@ -92,19 +95,30 @@ static void handlePostConfig(AsyncWebServerRequest* req, const String& body) {
     sendOk(req);
 }
 
-// GET /api/calibration → { points: [{adc, mm}, …] }
+// GET /api/calibration → { ratio_zero, points: [{ratio, mm}, …] }
 static void handleGetCalib(AsyncWebServerRequest* req) {
     JsonDocument doc;
+    doc["ratio_zero"] = serialized(String(_calib->getRatioZero(), 4));
     JsonArray arr = doc["points"].to<JsonArray>();
     for (int i = 0; i < _calib->count(); i++) {
         JsonObject p = arr.add<JsonObject>();
-        p["adc"] = _calib->getPoint(i).adc;
-        p["mm"]  = serialized(String(_calib->getPoint(i).mm, 2));
+        p["ratio"] = serialized(String(_calib->getPoint(i).ratio, 4));
+        p["mm"]    = serialized(String(_calib->getPoint(i).mm,    2));
     }
     sendJson(req, doc);
 }
 
-// POST /api/calibration/add ← { mm: 1.75 }  — uses current ADC from state
+// POST /api/calibration/zero — captures current ratio as zero baseline,
+//                              clears existing calibration points
+static void handleZeroCalib(AsyncWebServerRequest* req, const String& body) {
+    _calib->setRatioZero(_state->ratio);
+    _state->ratioZero = _state->ratio;
+    _state->ratioAdj  = 0.0f;
+    _calib->save();
+    sendOk(req);
+}
+
+// POST /api/calibration/add ← { mm: 1.75 }  — uses current ratioAdj from state
 static void handleAddCalib(AsyncWebServerRequest* req, const String& body) {
     JsonDocument doc;
     if (deserializeJson(doc, body) != DeserializationError::Ok) {
@@ -114,7 +128,7 @@ static void handleAddCalib(AsyncWebServerRequest* req, const String& body) {
     if (mm < FILAMENT_MIN || mm > FILAMENT_MAX) {
         sendError(req, "mm out of range"); return;
     }
-    if (!_calib->addPoint(_state->rawAdc, mm)) {
+    if (!_calib->addPoint(_state->ratioAdj, mm)) {
         sendError(req, "table full"); return;
     }
     _calib->save();
@@ -212,6 +226,7 @@ void webServerBegin(AppState* state, CalibrationTable* calib) {
     server.on("/api/calibration", HTTP_GET, handleGetCalib);
 
     onPost("/api/config",             handlePostConfig);
+    onPost("/api/calibration/zero",   handleZeroCalib);
     onPost("/api/calibration/add",    handleAddCalib);
     onPost("/api/calibration/del",    handleDelCalib);
     onPost("/api/calibration/clear",  handleClearCalib);
