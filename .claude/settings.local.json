@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pio run:*)",
+      "Bash(C:\\\\Users\\\\user\\\\.platformio\\\\penv\\\\Scripts\\\\pip.exe install:*)",
+      "Bash(cmd /c \"C:\\\\Users\\\\user\\\\.platformio\\\\penv\\\\Scripts\\\\pip.exe install --upgrade intelhex\")",
+      "Bash(cmd /c \"C:\\\\Users\\\\user\\\\.platformio\\\\penv\\\\Scripts\\\\pip.exe install --upgrade intelhex 2>&1\")",
+      "Bash(powershell -Command \"& 'C:\\\\Users\\\\user\\\\.platformio\\\\penv\\\\Scripts\\\\pip.exe' install --upgrade intelhex\")"
+    ]
+  }
+}
