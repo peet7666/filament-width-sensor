@@ -1,9 +1,21 @@
 #pragma once
 
 // ─── WiFi ────────────────────────────────────────────────────────────────────
-#define WIFI_SSID     "your_ssid"
-#define WIFI_PASSWORD "your_password"
-#define HOSTNAME      "filament-sensor"
+// Credentials below are compile-time fallbacks only.
+// At runtime the device loads /wifi.json from LittleFS (set via web UI).
+// If /wifi.json is absent or STA fails → AP mode: "FilamentSensor" / "12345678"
+#define WIFI_SSID_DEFAULT     ""           // leave empty → go straight to AP
+#define WIFI_PASSWORD_DEFAULT ""
+#define HOSTNAME              "filament-sensor"
+
+// ─── Reset pin ───────────────────────────────────────────────────────────────
+// Hold LOW (to GND) at power-on for >= RESET_HOLD_MS to erase WiFi settings.
+// GPIO0 = BOOT button on most ESP32 dev boards (already has a pull-up).
+#define PIN_RESET         0
+#define RESET_HOLD_MS     3000     // 3 s hold required
+
+// ─── WiFi config file (LittleFS) ─────────────────────────────────────────────
+#define WIFI_CONFIG_FILE  "/wifi.json"
 
 // ─── ADC ─────────────────────────────────────────────────────────────────────
 #define PIN_HALL1     34          // Hall sensor 1 (ADC1_CH6)

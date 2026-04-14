@@ -28,9 +28,12 @@ h2{color:#4af;margin:12px 0 6px;font-size:14px;text-transform:uppercase;letter-s
 
 /* ── Forms ── */
 label{display:block;font-size:11px;color:#888;margin-top:10px;margin-bottom:3px}
-input[type=number]{width:100%;padding:7px 8px;background:#222;border:1px solid #3a3a3a;
-  color:#eee;border-radius:4px;font-family:monospace;font-size:13px}
-input[type=number]:focus{outline:none;border-color:#4af}
+input[type=number],input[type=text],input[type=password]{width:100%;padding:7px 8px;
+  background:#222;border:1px solid #3a3a3a;color:#eee;border-radius:4px;
+  font-family:monospace;font-size:13px}
+input[type=number]:focus,input[type=text]:focus,input[type=password]:focus{outline:none;border-color:#4af}
+details summary{user-select:none}
+details[open] summary{color:#4af}
 .row{display:flex;gap:8px}
 .row>*{flex:1}
 button{margin-top:10px;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;
@@ -82,6 +85,40 @@ td{padding:5px 2px;border-bottom:1px solid #1e1e1e}
   </div>
   <button class="btn-primary" onclick="saveConfig()">Сохранить</button>
   <div class="msg" id="cfg-msg"></div>
+</div>
+
+<!-- ── WiFi settings ──────────────────────────────────────────── -->
+<div class="card" id="wifi-card">
+  <h2>Настройки WiFi</h2>
+  <p style="font-size:11px;color:#666;margin-bottom:4px">
+    После сохранения устройство перезагрузится и подключится к указанной сети.<br>
+    Если подключение не удастся — вернётся в AP-режим (FilamentSensor / 12345678).
+  </p>
+
+  <label>SSID (имя сети)</label>
+  <input type="text" id="wifi-ssid" maxlength="32" placeholder="название вашей WiFi сети">
+
+  <label>Пароль</label>
+  <input type="password" id="wifi-pass" maxlength="64" placeholder="пароль (оставьте пустым если не меняете)">
+
+  <details style="margin-top:12px">
+    <summary style="font-size:11px;color:#888;cursor:pointer">Статический IP (необязательно)</summary>
+    <div style="margin-top:8px">
+      <label>IP-адрес устройства</label>
+      <input type="text" id="wifi-ip" placeholder="напр. 192.168.1.100">
+      <label>Шлюз (Gateway)</label>
+      <input type="text" id="wifi-gw" placeholder="напр. 192.168.1.1">
+      <label>Маска подсети</label>
+      <input type="text" id="wifi-sn" placeholder="напр. 255.255.255.0">
+    </div>
+  </details>
+
+  <button class="btn-primary" onclick="saveWifi()">Сохранить и перезагрузить</button>
+  <div class="msg" id="wifi-msg"></div>
+
+  <p style="font-size:10px;color:#444;margin-top:10px">
+    Сброс настроек WiFi: удерживайте кнопку BOOT (GPIO0) при включении питания ≥ 3 с.
+  </p>
 </div>
 
 <!-- ── Calibration ────────────────────────────────────────────── -->
@@ -250,9 +287,51 @@ function showMsg(id, text, cls) {
   el._t = setTimeout(() => { el.textContent = ''; el.className = 'msg'; }, 3500);
 }
 
+// ── WiFi settings ─────────────────────────────────────────────────────────────
+async function loadWifi() {
+  try {
+    const d = await api('/api/wifi');
+    document.getElementById('wifi-ssid').value = d.ssid      || '';
+    document.getElementById('wifi-ip').value   = d.static_ip || '';
+    document.getElementById('wifi-gw').value   = d.gateway   || '';
+    document.getElementById('wifi-sn').value   = d.subnet    || '';
+    if (d.static_ip) {
+      document.querySelector('details').setAttribute('open', '');
+    }
+  } catch (e) {}
+}
+
+async function saveWifi() {
+  const ssid = document.getElementById('wifi-ssid').value.trim();
+  const pass = document.getElementById('wifi-pass').value;
+  const ip   = document.getElementById('wifi-ip').value.trim();
+  const gw   = document.getElementById('wifi-gw').value.trim();
+  const sn   = document.getElementById('wifi-sn').value.trim();
+
+  if (!ssid) { showMsg('wifi-msg', 'Введите SSID', 'err'); return; }
+
+  if (ip || gw || sn) {
+    const ipRe = /^\d{1,3}(\.\d{1,3}){3}$/;
+    if (!ipRe.test(ip) || !ipRe.test(gw) || !ipRe.test(sn)) {
+      showMsg('wifi-msg', 'Укажите IP, шлюз и маску корректно', 'err'); return;
+    }
+  }
+
+  const payload = { ssid, password: pass };
+  if (ip) { payload.static_ip = ip; payload.gateway = gw; payload.subnet = sn; }
+
+  try {
+    await api('/api/wifi', 'POST', payload);
+    showMsg('wifi-msg', 'Сохранено — перезагрузка...', 'ok');
+  } catch (e) {
+    showMsg('wifi-msg', 'Ошибка сохранения', 'err');
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadConfig();
 loadCalib();
+loadWifi();
 updateStatus();
 setInterval(updateStatus, 1000);
 </script>

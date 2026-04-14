@@ -8,6 +8,11 @@ static AsyncWebServer server(80);
 static AppState*        _state  = nullptr;
 static CalibrationTable* _calib = nullptr;
 
+// Set to true by the WiFi-save handler; checked in loop() to trigger restart.
+static volatile bool _pendingRestart = false;
+
+bool webServerPendingRestart() { return _pendingRestart; }
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 static void sendJson(AsyncWebServerRequest* req, const JsonDocument& doc, int code = 200) {
@@ -137,6 +142,61 @@ static void handleClearCalib(AsyncWebServerRequest* req, const String& body) {
     sendOk(req);
 }
 
+// GET /api/wifi → { ssid, static_ip, gateway, subnet }  (password omitted)
+static void handleGetWifi(AsyncWebServerRequest* req) {
+    JsonDocument doc;
+    File f = LittleFS.open(WIFI_CONFIG_FILE, "r");
+    if (f) {
+        JsonDocument cfg;
+        if (deserializeJson(cfg, f) == DeserializationError::Ok) {
+            doc["ssid"]      = cfg["ssid"]      | "";
+            doc["static_ip"] = cfg["static_ip"] | "";
+            doc["gateway"]   = cfg["gateway"]   | "";
+            doc["subnet"]    = cfg["subnet"]     | "";
+        }
+        f.close();
+    } else {
+        doc["ssid"]      = "";
+        doc["static_ip"] = "";
+        doc["gateway"]   = "";
+        doc["subnet"]    = "";
+    }
+    sendJson(req, doc);
+}
+
+// POST /api/wifi ← { ssid, password, static_ip, gateway, subnet }
+// Saves settings to /wifi.json and schedules a reboot.
+static void handlePostWifi(AsyncWebServerRequest* req, const String& body) {
+    JsonDocument doc;
+    if (deserializeJson(doc, body) != DeserializationError::Ok) {
+        sendError(req, "invalid JSON"); return;
+    }
+    const char* ssid = doc["ssid"] | "";
+    if (strlen(ssid) == 0) {
+        sendError(req, "ssid required"); return;
+    }
+
+    // Validate static IP fields if provided
+    const char* sip = doc["static_ip"] | "";
+    if (strlen(sip) > 0) {
+        IPAddress tmp;
+        const char* gw = doc["gateway"] | "";
+        const char* sn = doc["subnet"]  | "";
+        if (!tmp.fromString(sip) || strlen(gw) == 0 || strlen(sn) == 0 ||
+            !tmp.fromString(gw)  || !tmp.fromString(sn)) {
+            sendError(req, "invalid static IP / gateway / subnet"); return;
+        }
+    }
+
+    File f = LittleFS.open(WIFI_CONFIG_FILE, "w");
+    if (!f) { sendError(req, "fs error", 500); return; }
+    serializeJson(doc, f);
+    f.close();
+
+    sendOk(req);
+    _pendingRestart = true;   // reboot applied in loop()
+}
+
 // ─── Public ──────────────────────────────────────────────────────────────────
 
 void webServerBegin(AppState* state, CalibrationTable* calib) {
@@ -155,6 +215,9 @@ void webServerBegin(AppState* state, CalibrationTable* calib) {
     onPost("/api/calibration/add",    handleAddCalib);
     onPost("/api/calibration/del",    handleDelCalib);
     onPost("/api/calibration/clear",  handleClearCalib);
+
+    server.on("/api/wifi", HTTP_GET, handleGetWifi);
+    onPost("/api/wifi", handlePostWifi);
 
     server.onNotFound([](AsyncWebServerRequest* req) {
         req->send(404, "text/plain", "Not found");
